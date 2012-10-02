@@ -7,7 +7,7 @@ task :default => [:debug,:build]
 
 desc "Create an app with the provided name (and optional SDK version)"
 task :new, :app_name, :sdk_version do |t, args|
-  args.with_defaults(:sdk_version => "2.0p")
+  args.with_defaults(:sdk_version => "2.0p4")
   Dir.chdir(Rake.original_dir)
 
   config = Rally::AppSdk::AppConfig.new(args.app_name, args.sdk_version)
@@ -183,7 +183,7 @@ module Rally
     ## Simple object wrapping the configuration of an App
     class AppConfig
       SDK_RELATIVE_URL = "/apps"
-      SDK_ABSOLUTE_URL = "https://rally1.rallydev.com/apps"
+      SDK_ABSOLUTE_URL = "http://localhost:7001/apps"
       SDK_FILE = "sdk.js"
       SDK_DEBUG_FILE = "sdk-debug.js"
 
@@ -361,10 +361,7 @@ Ext.define('CLASS_NAME', {
     END
 
     JAVASCRIPT_INLINE_BLOCK_TPL = <<-END
-			Ext.define('Rally.ui.chart.Chart', {
-				extend: 'Chart.ux.HighChart',
-				alias: 'widget.rallychart'        
-			});
+			
 			
 JAVASCRIPT_BLOCK
             Rally.launchApp('CLASS_NAME', {
@@ -380,19 +377,8 @@ JAVASCRIPT_BLOCK
 
     <script type="text/javascript" src="APP_SDK_PATH"></script>
     
-    <script type="text/javascript" src="http://code.jquery.com/jquery-1.6.1.min.js"></script>
-    <script type="text/javascript" src="http://code.highcharts.com/2.1.6/highcharts.js"></script>
-    <script type="text/javascript" src="https://raw.github.com/JoeKuan/Highcharts_ExtJs_4/master/Chart/ux/HighChart.js"></script>
-    
-    <script type="text/javascript" src="https://raw.github.com/lmaccherone/Lumenize/master/deploy/lumenize.js"></script>
-
     <script type="text/javascript">
         Rally.onReady(function() {
-        	Ext.define('Rally.ui.chart.Chart', {
-				extend: 'Chart.ux.HighChart',
-				alias: 'widget.rallychart'        
-			});
-			
             Rally.loadScripts([
                 JAVASCRIPT_BLOCK
             ], function() {
@@ -416,12 +402,6 @@ STYLE_BLOCK
     <title>APP_TITLE</title>
 
     <script type="text/javascript" src="APP_SDK_PATH"></script>
-    
-    <script type="text/javascript" src="http://code.jquery.com/jquery-1.6.1.min.js"></script>
-    <script type="text/javascript" src="http://code.highcharts.com/2.1.6/highcharts.js"></script>
-    <script type="text/javascript" src="https://raw.github.com/JoeKuan/Highcharts_ExtJs_4/master/Chart/ux/HighChart.js"></script>
-    
-    <script type="text/javascript" src="https://raw.github.com/lmaccherone/Lumenize/master/deploy/lumenize.js"></script>
 
     <script type="text/javascript">
         Rally.onReady(function() {

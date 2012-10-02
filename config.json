@@ -1,7 +1,7 @@
 {
     "name": "AnalyticsChartApp",
     "className": "CustomApp",
-    "sdk": "2.0p",
+    "sdk": "2.0p4",
     "javascript": [
         "App.js"
     ],

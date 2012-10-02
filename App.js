@@ -1,4 +1,12 @@
-var lumenize = require('./lumenize');
+Ext.define('Rally.data.lookback.SnapshotStoreOtherUrl', {
+        extend: 'Rally.data.lookback.SnapshotStore',
+
+        constructor: function(config) {
+            this.callParent([config]);
+            // temporary override needed since need different server and workspace
+            this.proxy.url = 'https://hackathon.rallydev.com/analytics/v2.0/service/rally/workspace/41529001/artifact/snapshot/query';
+        }
+    });
 
 Ext.define('CustomApp', {
     extend: 'Rally.app.App',
@@ -26,8 +34,7 @@ Ext.define('CustomApp', {
                     height: 100,
                     xtype: 'textarea',
                     value: '{\n'+
-                            '    "$and": [ {"KanbanState": {"$gte":"In Dev"}}, {"KanbanState": {"$lt":"Accepted"}} ],\n'+
-                            '    "__At": "current"\n'+
+                            '    "ScheduleState": {"$exists": true}\n'+
                             '}'
                 },
                 {
@@ -35,7 +42,7 @@ Ext.define('CustomApp', {
                     itemId: 'fieldsField',
                     anchor: '100%',
                     width: 700,
-                    value: "ObjectID, KanbanState"
+                    value: "ObjectID, ScheduleState"
                 },
                 {
                     fieldLabel: 'Sort',
@@ -112,57 +119,65 @@ Ext.define('CustomApp', {
     },
     
     doSearch: function(query, fields, sort, pageSize, callback){
-        var workspace = this.context.getWorkspace().ObjectID;
-        var queryUrl = 'https://rally1.rallydev.com/analytics/1.32/'+ workspace +
-                        '/artifact/snapshot/query.js';
-        var params = {
-            find: query
+        var wrappedStoreConfig = {
+            context: {
+                workspace: this.context.getWorkspace(),
+                project: this.context.getProject()
+            },
+            rawFind: query,
+            hydrate: ["ScheduleState"]
         };
         
         if(fields){
-            //TODO can't handle $slice expression
-            params.fields = Ext.JSON.encode(fields);
+            wrappedStoreConfig.fetch = fields;
+        }
+
+        var transformStore = Ext.create('Rally.data.custom.TransformStore', {
+              wrappedStoreType: 'Rally.data.lookback.SnapshotStoreOtherUrl',
+              wrappedStoreConfig: wrappedStoreConfig,
+
+              transform: {
+                  method: "groupBy",
+                  config: {
+                      groupBy: 'ScheduleState',
+                      aggregations: [
+                          {
+                              field: 'ObjectID',
+                              f: Rally.data.util.Transform.functions.COUNT
+                          }
+                      ]
+                  }
+              },
+
+              autoLoad: true,
+
+              listeners: {
+                scope: this,
+                load: this.onTransformStoreLoad
+              }
+          });
+      },
+
+      convertGroupingsToRows: function(groups){
+        var rows = [];
+        
+        for(var group in groups){
+          if( groups.hasOwnProperty(group) ){
+            rows.push({
+              "ScheduleState": group,
+              "ObjectID_Count": groups[group]['ObjectID_$count']
+            });
+          }
         }
         
-        if(sort){
-            params.sort = sort;
-        }
-        
-        if(pageSize){
-            params.pagesize = pageSize;
-        }
-        
-        Ext.Ajax.cors = true;
-        Ext.Ajax.request({
-            url: queryUrl,
-            method: 'GET',
-            params: params,
-            withCredentials: true,
-            success: function(response){
-                var text = response.responseText;
-                var json = Ext.JSON.decode(text);
-                callback(json.Results);
-            }
-        });
-    },
-    
-    processSnapshots: function(snapshots){
-        var groupBySpec = {
-        	groupBy: 'KanbanState',
-        	aggregations: [
-        		{
-        			field: 'ObjectID',
-        			f: '$count'
-        		}
-        	]
-        };
-        
-        var groups = lumenize.groupBy(snapshots, groupBySpec);
-        var rows = this.convertGroupingsToRows(groups);
-        
-        var snapshotStore = Ext.create('Ext.data.Store', {
-            storeId:'snapshotStore',
-            fields: ["KanbanState", "ObjectID_Count"],
+        return { "rows": rows };
+      },
+
+      onTransformStoreLoad: function(store, records){
+        var rows = this.convertGroupingsToRows(records[0]);
+
+        var inMemoryStore = Ext.create('Ext.data.Store', {
+            fields: ["ScheduleState", "ObjectID_Count"],
             data: rows,
             proxy: {
                 type: 'memory',
@@ -172,130 +187,166 @@ Ext.define('CustomApp', {
                 }
             }
         });
-        
-		var chart = {
-			xtype : 'rallychart',
-			id : 'chart',
-			height: 400,
-			series : [{
-			  type : 'column',
-			  dataIndex : 'ObjectID_Count',
-			  name : 'Count',
-			  visible : true
-			}],
-			store : snapshotStore,
-			xField : 'KanbanState',
-			chartConfig : {
-			  chart : {
-				marginRight : 130,
-				marginBottom : 250,
-				zoomType : 'x',
-				animation : {
-				  duration : 1500,
-				  easing : 'swing'
-				}
-			  },
-			  title : {
-				text : 'Kanban State Counts',
-				align: 'center'
-			  },
-			  xAxis : [{
-				title : {
-				  text : 'KanbanState',
-				  margin : 40
-				},
-				labels : {
-				  align: 'right',
-				  rotation : 300
-				}
-			  }],
-			  yAxis : {
-				title : {
-				  text : 'Count'
-				},
-				plotLines : [{
-				  value : 0,
-				  width : 1,
-				  color : '#808080'
-				}]
-			  },
-			  plotOptions : {
-				  column: {
-					  color: '#F00'                              
-				  },
-				series : {
-				  animation : {
-					duration : 3000,
-					easing : 'swing'
-				  }
-				}
-			  },
-			  tooltip : {
-				formatter : function() {
-				  return this.x + ': ' + this.y;
-				}
-			  },
-			  legend : {
-				layout : 'vertical',
-				align : 'right',
-				verticalAlign : 'top',
-				x : -10,
-				y : 100,
-				borderWidth : 0
-			  }
-			}
-		  };
-        
+
+        var chartConfig = {
+            xtype : 'rallychart',
+            id : 'chart',
+
+            store: inMemoryStore,
+
+            height: 400,
+            series : [{
+              type : 'column',
+              yField : 'ObjectID_Count',
+              name : 'Count',
+              visible : true
+            }],
+            
+            xField : 'ScheduleState',
+            chartConfig : {
+              chart : {
+                marginRight : 130,
+                marginBottom : 250,
+                zoomType : 'x',
+                animation : {
+                  duration : 1500,
+                  easing : 'swing'
+                }
+              },
+              title : {
+                text : 'Schedule State Counts',
+                align: 'center'
+              },
+              xAxis : [{
+                title : {
+                  text : 'ScheduleState',
+                  margin : 40
+                },
+                labels : {
+                  align: 'right',
+                  rotation : 300
+                }
+              }],
+              yAxis : {
+                title : {
+                  text : 'Count'
+                },
+                plotLines : [{
+                  value : 0,
+                  width : 1,
+                  color : '#808080'
+                }]
+              },
+              plotOptions : {
+                  column: {
+                      color: '#F00'                              
+                  },
+                series : {
+                  animation : {
+                    duration : 3000,
+                    easing : 'swing'
+                  }
+                }
+              },
+              tooltip : {
+                formatter : function() {
+                  return this.x + ': ' + this.y;
+                }
+              },
+              legend : {
+                layout : 'vertical',
+                align : 'right',
+                verticalAlign : 'top',
+                x : -10,
+                y : 100,
+                borderWidth : 0
+              }
+            }
+          };
+
         var chartHolder = this.down('#chartHolder');
         chartHolder.removeAll(true);
-        chartHolder.add(chart);
-    },
-    
-    convertGroupingsToRows: function(groups){
-    	var rows = [];
-    	
-    	for(var group in groups){
-    		if( groups.hasOwnProperty(group) ){
-    			rows.push({
-    				"KanbanState": group,
-    				"ObjectID_Count": groups[group]['ObjectID_$count']
-    			});
-    		}
-    	}
-    	
-    	return { "rows": rows };
-    },
-    
-    getFieldsFromSnapshots: function(snapshots){
-        if(snapshots.length === 0){
-            return [];
-        }
+        chartHolder.add(chartConfig);
+
         
-        var snapshot = snapshots[0];
-        var fields = [];
-        for(var key in snapshot){
-            if (snapshot.hasOwnProperty(key)){
-                fields.push(key);
-            }
-        }
+        // if(sort){
+        //     params.sort = sort;
+        // }
         
-        return fields;
-    },
-    
-    createColumnsForFields: function(fields){
-        var columns = [];
-        for(var i=0; i < fields.length; ++i){
-            var col = {
-                header: fields[i],
-                dataIndex: fields[i]
-            };
-            
-            if(fields[i] === 'Name'){
-                col.flex = 1;
-            }
-            columns.push(col);
-        }
+        // if(pageSize){
+        //     params.pagesize = pageSize;
+        // }
         
-        return columns;
+        // Ext.Ajax.cors = true;
+        // Ext.Ajax.request({
+        //     url: queryUrl,
+        //     method: 'GET',
+        //     params: params,
+        //     withCredentials: true,
+        //     success: function(response){
+        //         var text = response.responseText;
+        //         var json = Ext.JSON.decode(text);
+        //         callback(json.Results);
+        //     }
+        // });
     }
+    
+  //   processSnapshots: function(snapshots){
+        
+        
+  //       var groups = lumenize.groupBy(snapshots, groupBySpec);
+  //       var rows = this.convertGroupingsToRows(groups);
+        
+  //       var snapshotStore = Ext.create('Ext.data.Store', {
+  //           storeId:'snapshotStore',
+  //           fields: ["KanbanState", "ObjectID_Count"],
+  //           data: rows,
+  //           proxy: {
+  //               type: 'memory',
+  //               reader: {
+  //                   type: 'json',
+  //                   root: 'rows'
+  //               }
+  //           }
+  //       });
+        
+		// var chart = 
+        
+        
+  //   },
+    
+    
+    
+  //   getFieldsFromSnapshots: function(snapshots){
+  //       if(snapshots.length === 0){
+  //           return [];
+  //       }
+        
+  //       var snapshot = snapshots[0];
+  //       var fields = [];
+  //       for(var key in snapshot){
+  //           if (snapshot.hasOwnProperty(key)){
+  //               fields.push(key);
+  //           }
+  //       }
+        
+  //       return fields;
+  //   },
+    
+  //   createColumnsForFields: function(fields){
+  //       var columns = [];
+  //       for(var i=0; i < fields.length; ++i){
+  //           var col = {
+  //               header: fields[i],
+  //               dataIndex: fields[i]
+  //           };
+            
+  //           if(fields[i] === 'Name'){
+  //               col.flex = 1;
+  //           }
+  //           columns.push(col);
+  //       }
+        
+  //       return columns;
+  //   }
 });
